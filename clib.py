@@ -4,11 +4,10 @@ import sys
 import os
 import matplotlib.pyplot as plt
 from itertools import combinations
-import time
 
 # This code was originally written by Vikram Ravi.
 # It has been since modified by multiple people, including Ewan Barr, Chris
-# Flynn, Stefan Oslowski, Morgan Oneill and Jr-Wei Tsai
+# Flynn, Stefan Oslowski, Jamie Tsai, and Morgan Oneill
 class CorrPlot(object):
     def __init__(self, pairs, antfile, best_idxs, batch_size=1024, ntop=4, nukeF1=False, nramps=20, wcut=0.2):
         self.pairs = pairs
@@ -110,7 +109,7 @@ class CorrPlot(object):
         if y < 0:
             y = 0
 
-        print "Picked pair: %d -> %d"%(x,y)
+        #print "Picked pair: %d -> %d"%(x,y)
         
         if not west_antennas:
             x += ( self.pairs["b"].max() + 1. ) / 2
@@ -122,12 +121,30 @@ class CorrPlot(object):
         if x < y:
             x, y = y, x
             swapped=True
-        print "Picked pair: %d -> %d"%(x,y)
+        #print "Picked pair: %d -> %d"%(x,y)
+
+        calib_delays_foo = open('calib.delays','r')
+        antenna_distance_foo = open('../obs.antenna','r')
 
 # fix to printed out antenna name (CF: 09/12/16)
         if swapped:
-            print "Antenna : %s -> %s"%(self.ants[np.where(self.antenna_sorter==int(x))[0][0]], # [0][0] as np.where returns a tuple of arrays
-                    self.ants[int(y)])
+            for i in calib_delays_foo:
+                if self.ants[int(y)] == i[:5]:
+                    print "Antenna : %s -> %s"%(self.ants[np.where(self.antenna_sorter==int(x))[0][0]], # [0][0] as np.where returns a tuple of arrays
+                    self.ants[int(y)]), map(float, i.split(" ")[1:])[0]*10**9,"(ns), ",map(float, i.split(" ")[1:])[1], "(rad), ", map(float, i.split(" ")[1:])[2], "(weight)"
+
+
+            for i in antenna_distance_foo:
+                if i[:5] == self.ants[int(y)]:
+                    location_a = float(i.split(" ")[1])
+                    if i[0] =="W": location_a *= -1.
+                if i[:5] == self.ants[np.where(self.antenna_sorter==int(x))[0][0]]:
+                    location_b = float(i.split(" ")[1])
+                    if i[0] =="W": location_b *= -1.
+            #print location_a, location_b
+            if abs( location_a - location_b )<50: print "short baseline, no contribution"
+
+            
             if self.ants[np.where(self.antenna_sorter==int(x))[0][0]] == self.ants[int(y)]:
                 print "same antennas!, returned"
                 return
@@ -135,8 +152,24 @@ class CorrPlot(object):
             if self.ants[np.where(self.antenna_sorter==int(y))[0][0]] == self.ants[int(x)]:
                 print "same antennas!, returned"
                 return
-            print "Antenna : %s -> %s"%(self.ants[np.where(self.antenna_sorter==int(y))[0][0]],
-                    self.ants[int(x)])
+            for i in calib_delays_foo:
+                if self.ants[int(x)] == i[:5]:
+                    print "Antenna : %s -> %s"%(self.ants[np.where(self.antenna_sorter==int(y))[0][0]],
+                    self.ants[int(x)]), map(float, i.split(" ")[1:])[0]*10**9,"(ns), ",map(float, i.split(" ")[1:])[1], "(rad), ", map(float, i.split(" ")[1:])[2], "(weight)"
+
+            for i in antenna_distance_foo:
+                if i[:5] == self.ants[int(x)]:
+                    location_a = float(i.split(" ")[1])
+                    if i[0] =="W": location_a *= -1.
+                if i[:5] == self.ants[np.where(self.antenna_sorter==int(y))[0][0]]:
+                    location_b = float(i.split(" ")[1])
+                    if i[0] =="W": location_b *= -1.
+            #print location_a, location_b
+            if abs( location_a - location_b )<50: print "short baseline, no contribution"
+
+
+
+
         self.cp_spec_ax.cla()
         self.phase_ax.cla()
         self.corr_ax.cla()
@@ -218,14 +251,14 @@ class CorrPlot(object):
         plt.draw()
 
 def stupid_snr(ar,batch_size):
-    baseline = np.hstack((ar[:batch_size*1/3],ar[batch_size*2/3:]))
+    baseline = np.hstack((ar[:batch_size/3],ar[2*batch_size/3:]))
     ar -= baseline.mean()
     return ar.max() / baseline.std()
 
 def new_snr(row,batch_size,args):
 
     nch = batch_size
-    nramps = args.nramps # over 20 samples, average
+    nramps = args.nramps # over 10 samples
     wcut = args.wcut
     x = np.arange(nch)
     n_excise = 10
@@ -235,11 +268,8 @@ def new_snr(row,batch_size,args):
     spowers = np.sort(powers)
     slocs = np.argsort(powers)
     steps = np.diff(spowers) #spowers[1:nch]-spowers[0:nch-1] # <- np.diff
-
     step_fracs = np.zeros(nch)
     step_fracs[1:nch] = steps/np.max(np.sort(steps)[0:nch/2]) 
-
-
     pm1 = np.zeros(nch)+1.
     pm1[slocs[np.where(step_fracs > 100.0)]] = 0.0
 
@@ -265,38 +295,31 @@ def new_snr(row,batch_size,args):
     pm2[locs[power_mask==0.0]] = 0.0
     pm2 = pm1*np.tile(pm2,(nch/args.nchan,1)).transpose().reshape(nch)
 
-    ar = np.fft.ifft(row*pm2) #ar is the period of a time series within a sampling rate
+    ar = np.fft.ifft(row*pm2)
     ar = np.fft.fftshift(ar)
 
     # coarse delay
-    dely_coarse = (x[np.log10(np.abs(ar)) == np.log10(np.abs(ar)).max()]*1. - nch/2.)*2.*np.pi
-
-    coarse_corr = row*(np.cos(x*(dely_coarse)/(1.*nch))+1j*np.sin(x*(dely_coarse)/(1.*nch))) #coarse-phase-corrected row, x=0->1023, nch = 1024
-
+    dely_coarse = (x[np.log10(np.abs(ar)) == np.log10(np.abs(ar)).max()]*1.-nch/2.)*2.*np.pi
+    coarse_corr = row*(np.cos(x*(dely_coarse)/(1.*nch))+1j*np.sin(x*(dely_coarse)/(1.*nch)))
+    
     #coarse delay re-write:
     #dely_coarse = np.abs(ar).argmax() - nch/2.
     #ramp = np.e**(np.pi*2*1j*np.linspace(0,1,size,endpoint=False) * dely_coarse)
     #coarse_corr = row * ramp
 
     # delay ramps and fit
-    delys = (np.arange(nramps)+0.5)*4.*np.pi/(1.*nramps)-2.*np.pi # nramps(20 default) linear -2pi to 2pi
-    #delys = np.linspace(-2*np.pi, 2*np.pi, nramps)# nramps(20 default) linear -2pi to 2pi
+    delys = (np.arange(nramps)+0.5)*4.*np.pi/(1.*nramps)-2.*np.pi
     stds = np.zeros(nramps)
-
     for i in range(nramps):
-        # Ewan: This is incorrect as it does not deal with phases near pi or -pi where there is a wrap.
+        # Ewan: This is incorrect as it does not deal with phases near pi or -pi where there is a wrap
         stds[i] = np.std((np.sin(np.angle(coarse_corr*(np.cos(x*(delys[i])/(1.*nch))+1j*np.sin(x*(delys[i])/(1.*nch))))))[pm2 != 0.0])**2.
-        #stds[i] = np.std((np.cos(np.angle(coarse_corr*(np.cos(x*(delys[i])/(1.*nch))+1j*np.sin(x*(delys[i])/(1.*nch))))))[pm2 != 0.0])**2.
-
-
-    good_dely = delys[stds==np.min(stds)] + dely_coarse
+    good_dely = delys[stds == np.min(stds)]+dely_coarse
 
     # dat_good = decoarse and define delayed signal
     dat_good = row*(np.cos(x*(good_dely)/(1.*nch))+1j*np.sin(x*(good_dely)/(1.*nch)))
     
     mn = np.mean(dat_good)
     dat_good *= np.conj(mn/np.abs(mn)) # Zero the phase of the visibility
-
     avg_dgood = np.sum(np.reshape(np.angle(dat_good)*pm2,(nch/4,4)),1)/4. #eh? this is just the mean of the phase on a window of 4.
     # avg_dgood = np.angle(dat_good).reshape(nch/4,4).mean(axis=1)
     x2 = np.sum(np.reshape(x,(nch/4,4)),1)/4.
@@ -304,18 +327,17 @@ def new_snr(row,batch_size,args):
 
     # Now we move to fitting a version of the data that has been binned by a factor of 4.
     vals = np.polyfit(x2[avg_dgood!=0.0],avg_dgood[avg_dgood!=0.0],1)
-
+    
     # This line appears to be pointless
     # f = np.poly1d(vals)
 
     # this is a secondary fine delay correction based on a 1d polyfit
-    fin_dely = good_dely/(2.*np.pi) - vals[0]*nch/(2.*np.pi) # in samples, nch = 1024
+    fin_dely = good_dely/(2.*np.pi)-vals[0]*nch/(2.*np.pi) # in samples
+
     # this is the final phase correction
     # this is not true phase however as the phases have been normalized about 0 prior to the poly fit
-    #fin_phase = np.median(np.angle(row[pm2!=0.0]*(np.cos((x[pm2!=0.0]-nch/2.)*(fin_dely*2.*np.pi)/(1.*nch))+1j*np.sin((x[pm2!=0.0]-nch/2.)*(fin_dely*2.*np.pi)/(1.*nch)))))
     fin_phase = np.angle(np.mean(row[pm2!=0.0]*(np.cos((x[pm2!=0.0]-nch/2.)*(fin_dely*2.*np.pi)/(1.*nch))+1j*np.sin((x[pm2!=0.0]-nch/2.)*(fin_dely*2.*np.pi)/(1.*nch)))))
-    #fin_phase = np.angle(np.median(row[pm2!=0.0]*(np.cos((x[pm2!=0.0]-nch/2.)*(fin_dely*2.*np.pi)/(1.*nch))+1j*np.sin((x[pm2!=0.0]-nch/2.)*(fin_dely*2.*np.pi)/(1.*nch)))))
-
+    
     # Here we do a final derotation of phase
     fin_row = pm2*row*(np.cos(-fin_phase+(x-nch/2.)*(fin_dely*2.*np.pi)/(1.*nch))+1j*np.sin(-fin_phase+(x-nch/2.)*(fin_dely*2.*np.pi)/(1.*nch)))
     #fin_row = pm2*row*(np.cos(-fin_phase+x*(fin_dely*2.*np.pi)/(1.*nch))+1j*np.sin(-fin_phase+x*(fin_dely*2.*np.pi)/(1.*nch)))
@@ -327,28 +349,20 @@ def new_snr(row,batch_size,args):
     #Only select fsnrs of coarse channels that have a non zero mean in their real component (its a mask)
     #Signal is now phased to zero, so component in phase is astro and out of phase (i.e. imag component) is noise
     fsnr = fsnr[(np.sum(np.reshape(np.real(fin_row),(args.nchan,nch/args.nchan)),1)/(nch/args.nchan))!= 0.0]
+    
     #Eh? What? Sort all the S/N to find the best channel and then select the second best channel?????
     #Is this just a mistake or is there some kind of reasoning here?
-
-    fsnr = np.sort(fsnr)[len(fsnr)-2]    
-    #fsnr = fsnr.max()
-
+    fsnr = np.sort(fsnr)[len(fsnr)-2]
+    
     if fsnr < 1.0: # note (10/50000)*sqrt(1.5e7*300)*sqrt(1/320) = 0.75
         fin_snr = 1e8
     else:
         fin_snr = 1./fsnr
-
-    #fin_snr = 1./fsnr
-
     # What is fin_snr? Is it a reciprocal weight?
-    #print fsnr,"jamie",fsnr.shape, nch, args.nchan
-    
-    #if fin_snr == 0: print 'jamie'
-
     return (fin_row,fin_dely,-fin_phase,fin_snr)
-    #return (fin_row,fin_dely,-fin_phase,fsnr)
     
 def solve_snr(x12,x13,x23):
+
     return(x12*x13/x23,x12*x23/x13,x13*x23/x12)
 
 def makePFB(ants):
@@ -552,6 +566,7 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
     #master_weight_errs_1[master_weights != 0.0] = np.abs(master_weights[master_weights != 0.0]/(master_weight_errs_1[master_weights != 0.0]-master_weight_errs_2[master_weights != 0.0]))
       
 
+
     master_weights /= master_weights.max()
     master_weights[master_weights <= 0.0] = 0.0
     master_weights[master_weights <= 0.001] = 0.0
@@ -604,7 +619,7 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
         #plt.title('Delays by position')
         plt.plot(dists,master_dels/tsamp,'go')
         plt.plot(dists[badant],(master_dels/tsamp)[badant],'ro')
-        
+
 # delay correction versus antenna weight
         plt.subplot(232)
         plt.xlabel('Antenna weight')
@@ -612,7 +627,7 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
         #plt.title('Delays by weight')
         plt.plot((master_weights**2),master_dels/tsamp,'go')
         plt.plot((master_weights**2)[badant],(master_dels/tsamp)[badant],'ro')
-        #plt.ylim([-2.0,2.0]) # samples
+        plt.ylim([-2.0,2.0]) # samples
 
 # ranked module performance curve
         plt.subplot(233)
@@ -631,8 +646,8 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
         plt.ylabel('Phase correction (radians)')
         plt.ylim([-np.pi,np.pi])
         #plt.title('Phases by position')
-        plt.plot(dists,master_phs,'go')
-        plt.plot(dists[badant],(master_phs)[badant],'ro')
+        plt.plot(dists, master_phs, 'go')
+        plt.plot(dists[badant], (master_phs)[badant], 'ro')
 
 # phase correction versus antenna weight
         plt.subplot(235)
@@ -660,6 +675,7 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
         print "Derived average SEFD ", SEFD_average
         print "Derived average Tsys ",Tsys
 
+
 def delay_signal2(ar,delay):
     nbins = ar.size
     ramp = np.arange(0,np.pi*2,np.pi*2/nbins)
@@ -682,13 +698,12 @@ def main(args):
     if args.ccfile:
         combi = [i for i in combinations(range(args.nant),2)]
         count += len(combi)
-
+        
     dtype = [("a","int32"),("b","int32"),("delay","float32"),
              ("sn","float32"),("ar","complex64",args.batch_size)]
     grp = [("sn","float32"),("del","float32"),("ph","float32")]
     pairs = np.recarray(count,dtype=dtype)
-
-
+    
     nant = 0
     if args.acfile:
         acdata = np.fromfile(args.acfile,dtype="float32")
@@ -699,19 +714,19 @@ def main(args):
             ar = np.fft.ifft(row)
             sn = stupid_snr(np.fft.fftshift(abs(ar)),args.batch_size)
             pairs[ii] = (ii,ii,0.0,sn,ar)
-
+            
     if args.ccfile:
-        ccdata = np.fromfile(args.ccfile,dtype="complex64") #ccdata.shape = 352 choose 2 times 1024
+        ccdata = np.fromfile(args.ccfile,dtype="complex64")
         ncombi = ccdata.size/args.batch_size
-        ccdata = ccdata.reshape(ncombi,args.batch_size) #ccdata.shape = 352 choose 2 , 1024
-
+        ccdata = ccdata.reshape(ncombi,args.batch_size)
+        
         # rank modules
         stupid_snrs = np.zeros(args.nant)
         stupid_number = np.zeros(args.nant)
-        for ii,row in enumerate(ccdata): # first loop to find module rank, snr
-            if np.any(row != 0j): # HIRES: originally: if np.sum(row)!=0j:
+        for ii,row in enumerate(ccdata):
+            if not np.any(row==0j): # HIRES: originally: if np.sum(row)!=0j: 
                 ar = np.fft.ifft(row)
-                stupid_snr_value = stupid_snr(np.fft.fftshift(abs(ar)),args.batch_size) #the max snr
+                stupid_snr_value = stupid_snr(np.fft.fftshift(abs(ar)),args.batch_size)
                 stupid_snrs[combi[ii][0]] += stupid_snr_value
                 stupid_snrs[combi[ii][1]] += stupid_snr_value
                 stupid_number[combi[ii][0]] += 1
@@ -720,9 +735,10 @@ def main(args):
         sca_sn = stupid_snrs/(1.*stupid_number)
 
         sca_sn = np.nan_to_num(sca_sn) # HIRES: remove nan's to identify best antennas
-        for i in range(args.nant): # nant = 352
+        for i in range(args.nant):
             if sca_sn[i] >= args.thresh and stupid_number[i]<args.nused:
                 sca_sn[i] = args.thresh
+                #print i, sca_sn[i],stupid_number[i],stupid_snrs[i]
 
         # module statii - -1 is dead, 0 is average, 1 is best-args.ntop
         mod_status = np.zeros(args.nant)
@@ -734,17 +750,17 @@ def main(args):
             sys.exit(0)
         good_idxs = np.arange(mod_status.size)[mod_status==0]
         best_idxs = np.arange(mod_status.size)[mod_status==1]
-        mods  = np.recarray((good_idxs.size,args.ntop),dtype=grp) # this IS a random generator!!!
-        bests = np.recarray((args.ntop,     args.ntop),dtype=grp) # random too
+        mods = np.recarray((good_idxs.size,args.ntop),dtype=grp)
+        bests = np.recarray((args.ntop,args.ntop),dtype=grp)
 
-        for ii,row in enumerate(ccdata):# second loop over that using new_snr
-
+        for ii,row in enumerate(ccdata):
+            
             mydel = 0.0
             myph = 0.0
             sn = 0.0
 
             # if (mod_status[combi[ii][0]]==1 or mod_status[combi[ii][1]]==1):
-            if ( np.any(row!=0j) and (mod_status[combi[ii][0]]==1 or mod_status[combi[ii][1]]==1)) : # HIRES: original line above
+            if (not np.any(row==0j) and (mod_status[combi[ii][0]]==1 or mod_status[combi[ii][1]]==1)) : # HIRES: original line above
 
                 if np.sum(row)==0j:
                     print 'bad sum'
@@ -754,8 +770,8 @@ def main(args):
                 ar = np.fft.ifft(myfit[0])
                 mydel = myfit[1]
                 myph = myfit[2]
-                #pairs[ii+nant] =(combi[ii][0],combi[ii][1],mydel,sn,ar)
-                pairs[ii] =(combi[ii][0],combi[ii][1],mydel,sn,ar)
+                #print sn,mydel,myph
+                            
                 if mod_status[combi[ii][0]]==0.:
                     mods[good_idxs == combi[ii][0],best_idxs == combi[ii][1]]=(sn,mydel,myph)
                 elif mod_status[combi[ii][1]]==0.:
@@ -765,13 +781,15 @@ def main(args):
                     mult2 = np.arange(args.ntop)[best_idxs == combi[ii][1]]
                     bests[mult1,mult2]=(sn,mydel,myph)
                     bests[mult2,mult1]=(sn,mydel,myph)
+                
+            pairs[ii+nant] =(combi[ii][0],combi[ii][1],mydel,sn,ar)
 
-            #pairs[ii+nant] =(combi[ii][0],combi[ii][1],mydel,sn,ar)
 
     proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn)
     if not args.noplot:
         x = CorrPlot(pairs, batch_size=args.batch_size, antfile=args.antfile,
-                ntop=args.ntop, best_idxs=best_idxs, nukeF1 = args.nukeF1, nramps=args.nramps, wcut=args.wcut)
+                ntop=args.ntop, best_idxs=best_idxs, nukeF1 = args.nukeF1,
+                nramps=args.nramps, wcut=args.wcut)
         plt.ion()
         plt.show()
         raw_input(">>> Press to do something unexpected")
