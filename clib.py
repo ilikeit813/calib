@@ -9,7 +9,7 @@ from itertools import combinations
 # It has been since modified by multiple people, including Ewan Barr, Chris
 # Flynn, Stefan Oslowski, Jamie Tsai, and Morgan Oneill
 class CorrPlot(object):
-    def __init__(self, pairs, antfile, best_idxs, batch_size=1024, ntop=4, nukeF1=False, nramps=20, wcut=0.2):
+    def __init__(self, pairs, antfile, best_idxs, good_idxs, mods, args, batch_size=1024, ntop=4, nukeF1=False, nramps=20, wcut=0.2):
         self.pairs = pairs
         self.best_idxs = best_idxs
         with open(antfile, "r") as fp:
@@ -34,6 +34,9 @@ class CorrPlot(object):
         self.phase_ax = self.fig.add_subplot(3, 4, 10)
         self.corr_ax = self.fig.add_subplot(3, 4, 11)
         self.fraction_ax = self.fig.add_subplot(3, 4, 12)
+        self.good_idxs = good_idxs
+        self.mods=mods
+        self.args=args
         self.plot()
 
     def plot(self):
@@ -125,13 +128,18 @@ class CorrPlot(object):
 
         calib_delays_foo = open('calib.delays','r')
         antenna_distance_foo = open('../obs.antenna','r')
-
+        modsdel_baselined = np.load('modsdel_baselined.npy','r')
+        modsph_baselined  = np.load('modsph_baselined.npy','r')
 # fix to printed out antenna name (CF: 09/12/16)
         if swapped:
             for i in calib_delays_foo:
                 if self.ants[int(y)] == i[:5]:
                     print "Antenna : %s -> %s"%(self.ants[np.where(self.antenna_sorter==int(x))[0][0]], # [0][0] as np.where returns a tuple of arrays
                     self.ants[int(y)]), map(float, i.split(" ")[1:])[0]*10**9,"(ns), ",map(float, i.split(" ")[1:])[1], "(rad), ", map(float, i.split(" ")[1:])[2], "(weight)"
+                    if self.args.verbose:
+                        for j in range(len(self.good_idxs)):
+                            if np.loadtxt(args.antfile,dtype='str').transpose()[0][self.good_idxs[j]] == self.ants[int(y)]:
+                                print self.ants[int(y)], modsdel_baselined[j]*self.args.tsamp*1e3, '(ns)', modsph_baselined[j], '(rad)'
 
 
             for i in antenna_distance_foo:
@@ -156,6 +164,10 @@ class CorrPlot(object):
                 if self.ants[int(x)] == i[:5]:
                     print "Antenna : %s -> %s"%(self.ants[np.where(self.antenna_sorter==int(y))[0][0]],
                     self.ants[int(x)]), map(float, i.split(" ")[1:])[0]*10**9,"(ns), ",map(float, i.split(" ")[1:])[1], "(rad), ", map(float, i.split(" ")[1:])[2], "(weight)"
+                    if self.args.verbose:
+                        for j in range(len(self.good_idxs)):
+                            if np.loadtxt(args.antfile,dtype='str').transpose()[0][self.good_idxs[j]] == self.ants[int(x)]:
+                                print self.ants[int(x)], -1*modsdel_baselined[j]*self.args.tsamp*1e3, '(ns)', -1*modsph_baselined[j], '(rad)'
 
             for i in antenna_distance_foo:
                 if i[:5] == self.ants[int(x)]:
@@ -415,9 +427,11 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
     for i in size_by_nbest_range:
         for j in np.arange(nbest):
             baseline[i,j] = np.abs(dists[good_idxs[i]]-dists[best_idxs[j]])
+    #np.save('baseline0',baseline)
     baseline[baseline < 50.]=0.
     baseline[baseline >= 50.]=1.
 
+    #np.save('baseline1',baseline)
 
     # delays
 
@@ -434,11 +448,18 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
 
             mods["del"][i,j] = np.abs(mods["del"][i,j])*np.sign(mods["del"][i,0])
 
-    print "delays"
-    print 'mods["del"]', mods["del"].shape
+    #print "delays"
+    #print 'mods["del"]', mods["del"].shape, mods["del"]
     good_dels = np.sum(mods["del"]*baseline,axis=1)/np.sum(baseline,axis=1)
-    print 'del_corrs', del_corrs
-    print 'good_dels', good_dels
+
+    #for i in range(good_idxs.size):
+    #    print ants[good_idxs[i]], good_dels[i]*-1*tsamp, mods["del"][i]*baseline*tsamp
+    #    print 
+
+    np.save('modsdel_baselined', mods["del"]*baseline) # mods["del"]*baseline)
+    #np.save('del_corrs',del_corrs)
+    #print 'del_corrs', del_corrs.shape, del_corrs
+    #print 'good_dels',good_dels.shape, good_dels
 
     # phases
 
@@ -454,11 +475,17 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
 
             mods["ph"][i,j] = np.abs(mods["ph"][i,j])*np.sign(mods["ph"][i,0])
 
-    print "phases"
-    print 'mods["ph"]', mods["ph"].shape
+    #print "phases"
+    #print 'mods["ph"]', mods["ph"].shape, mods["ph"]
     good_phs =  np.sum(mods["ph"]*baseline,axis=1)/np.sum(baseline,axis=1)
-    print 'good_phs', good_phs
-    print 'ph_corrs', ph_corrs
+
+    #for i in range(good_idxs.size):
+    #    print ants[good_idxs[i]], mods['ph'][i], good_phs[i]
+    #print ants[good_idxs[1]], good_phs[1], (mods["ph"]*baseline).shape
+
+    np.save('modsph_baselined', mods['ph']*baseline) #mods["ph"]*baseline)
+    #print 'ph_corrs', ph_corrs.shape,ph_corrs
+    #print 'good_phs', good_phs.shape,good_phs
     # SNRs
 
     good_snrs = np.zeros((mods.size/nbest,nbest*(nbest-1)/2))
@@ -610,7 +637,7 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
         plt.figure(1)
 
 # form mask of bad ants
-        badant = (master_weights**2)<args.wcut
+        badant = (master_weights**1)<args.wcut
         for i in range(len(badant)):
             if badant[i] is False and np.abs(master_dels[i]/tsamp)>0.5: 
                 badant[i] = True
@@ -638,7 +665,7 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
         plt.subplot(233)
         plt.xlabel('Module rank')
         plt.ylabel('Module SNR')
-        sefdmask = (np.sort((master_weights**2)))<args.wcut 
+        sefdmask = (np.sort((master_weights**1)))<args.wcut 
         plt.xlim(1,len(real_sefds))
         #plt.title('SNRs')
         plt.plot(np.arange(len(real_sefds)),np.sort(master_weights**2),'go',lw=2)
@@ -660,8 +687,8 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
         plt.ylabel('Phase correction (radians)')
         plt.ylim([-np.pi,np.pi])
         #plt.title('Phases by weight')
-        plt.plot((master_weights**2),master_phs,'go')
-        plt.plot((master_weights**2)[badant],master_phs[badant],'ro')
+        plt.plot((master_weights**1),master_phs,'go')
+        plt.plot((master_weights**1)[badant],master_phs[badant],'ro')
 
 # antenna SNR versus position along array
         plt.subplot(236)
@@ -794,7 +821,7 @@ def main(args):
     if not args.noplot:
         x = CorrPlot(pairs, batch_size=args.batch_size, antfile=args.antfile,
                 ntop=args.ntop, best_idxs=best_idxs, nukeF1 = args.nukeF1,
-                nramps=args.nramps, wcut=args.wcut)
+                nramps=args.nramps, wcut=args.wcut, good_idxs=good_idxs, mods=mods, args=args)
         plt.ion()
         plt.show()
         raw_input(">>> Press to do something unexpected")
@@ -826,6 +853,8 @@ if __name__ == "__main__":
     parser.add_argument("-nused","--nused",help="stupid_number threshold (def 88)",type=int,default=88)
     parser.add_argument("-nukeF1","--nukeF1",help="Apply brute force Telstra F1 removal",
              default=False, action="store_true")
+    parser.add_argument("-verbose","--verbose",help="Print out the values at pick up",
+             default=None)
     args = parser.parse_args()
 
     if args.nant == None:
