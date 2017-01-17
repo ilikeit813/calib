@@ -246,7 +246,7 @@ class CorrPlot(object):
         self.phase_ax.scatter(range(cp_phase.size),cp_phase,s=1,edgecolor="b")
         self.phase_ax.set_ylim(-np.pi,np.pi)
         self.phase_ax.set_xlim(0, self.batch_size)
-        self.phase_ax.set_xlabel('Cross Power Phases')
+        self.phase_ax.set_xlabel('Residual Cross Power Phases')
 
         plt.draw()
 
@@ -435,8 +435,10 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
             mods["del"][i,j] = np.abs(mods["del"][i,j])*np.sign(mods["del"][i,0])
 
     print "delays"
-    print mods["del"][i]
+    print 'mods["del"]', mods["del"].shape
     good_dels = np.sum(mods["del"]*baseline,axis=1)/np.sum(baseline,axis=1)
+    print 'del_corrs', del_corrs
+    print 'good_dels', good_dels
 
     # phases
 
@@ -453,9 +455,10 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
             mods["ph"][i,j] = np.abs(mods["ph"][i,j])*np.sign(mods["ph"][i,0])
 
     print "phases"
-    print mods["ph"][i]
+    print 'mods["ph"]', mods["ph"].shape
     good_phs =  np.sum(mods["ph"]*baseline,axis=1)/np.sum(baseline,axis=1)
-
+    print 'good_phs', good_phs
+    print 'ph_corrs', ph_corrs
     # SNRs
 
     good_snrs = np.zeros((mods.size/nbest,nbest*(nbest-1)/2))
@@ -625,8 +628,10 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
         plt.xlabel('Antenna weight')
         plt.ylabel('Delay correction (samples)')
         #plt.title('Delays by weight')
-        plt.plot((master_weights**2),master_dels/tsamp,'go')
-        plt.plot((master_weights**2)[badant],(master_dels/tsamp)[badant],'ro')
+        #plt.plot((master_weights**2),master_dels/tsamp,'go')
+        #plt.plot((master_weights**2)[badant],(master_dels/tsamp)[badant],'ro')
+        plt.plot((master_weights**1),master_dels/tsamp,'go')
+        plt.plot((master_weights**1)[badant],(master_dels/tsamp)[badant],'ro')
         plt.ylim([-2.0,2.0]) # samples
 
 # ranked module performance curve
@@ -636,8 +641,8 @@ def proc_ants(mods,bests,mod_status,good_idxs,best_idxs,args,sca_sn):
         sefdmask = (np.sort((master_weights**2)))<args.wcut 
         plt.xlim(1,len(real_sefds))
         #plt.title('SNRs')
-        plt.plot(np.arange(len(real_sefds)),np.sort(master_weights**2),'g-',lw=2)
-        plt.plot(np.arange(len(real_sefds))[sefdmask],np.sort(master_weights**2)[sefdmask],'r-',lw=2)
+        plt.plot(np.arange(len(real_sefds)),np.sort(master_weights**2),'go',lw=2)
+        plt.plot(np.arange(len(real_sefds))[sefdmask],np.sort(master_weights**2)[sefdmask],'ro',lw=2)
         plt.xlim(1,len(real_sefds))
 
 # phase correction versus antenna position along array
